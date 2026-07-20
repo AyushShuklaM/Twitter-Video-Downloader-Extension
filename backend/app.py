@@ -1,18 +1,11 @@
 """
-Twitter/X video downloader — backend API
+Twitter/X & Universal Video Downloader — Backend API
 
 Endpoints:
   GET  /api/health
-  POST /api/info        { "url": "<tweet url>" }  -> metadata + available qualities
-  GET  /api/download     ?url=<tweet url>&format=mp4|mp3&quality=<height or 'best'>
-                          -> streams the converted file back to the client
-
-Requires:
-  pip install -r requirements.txt
-  ffmpeg installed and on PATH (needed for mp3 extraction and muxing)
-
-Run:
-  uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+  POST /api/info        { "url": "<video url>" }  -> metadata + available qualities
+  GET  /api/download    ?url=<video url>&format=mp4|mp3&quality=<height or 'best'>
+                        -> streams the converted file back to the client
 """
 
 import os
@@ -30,10 +23,9 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, field_validator
 from starlette.background import BackgroundTask
 
-app = FastAPI(title="Twitter/X Video Downloader API")
+app = FastAPI(title="Universal Video Downloader API")
 
-# Allow the extension + the web frontend to call this API from any origin.
-# Tighten this to your real frontend/extension origin(s) before deploying publicly.
+# Allow the extension + web frontend to call this API from any origin.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -59,18 +51,17 @@ class InfoRequest(BaseModel):
         if not GENERAL_URL_RE.match(v):
             raise ValueError("That doesn't look like a valid URL.")
         return v
-    
 
 
-    def _base_ydl_opts(workdir: Path) -> dict:
+def _base_ydl_opts(workdir: Path) -> dict:
     return {
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
         "outtmpl": str(workdir / "%(id)s.%(ext)s"),
-        "cookiefile": "cookies.txt", 
+        "cookiefile": "cookies.txt",
         
-        # THE YOUTUBE FIX: Spoof mobile and TV clients to bypass web player blocks
+        # Spoof mobile & TV clients to bypass YouTube web player blocks
         "extractor_args": {
             "youtube": {
                 "client": ["android", "ios", "tv"]
@@ -86,8 +77,6 @@ class InfoRequest(BaseModel):
     }
 
 
-
-
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
@@ -95,13 +84,11 @@ def health():
 
 @app.post("/api/info")
 def get_info(payload: InfoRequest):
-    """Look up a tweet and return its available video qualities without downloading."""
+    """Look up a post and return its available video qualities without downloading."""
     with tempfile.TemporaryDirectory(dir=TMP_ROOT) as tmp:
         opts = _base_ydl_opts(Path(tmp))
         opts["skip_download"] = True
-        
-       
-        
+
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(payload.url, download=False)
@@ -182,7 +169,6 @@ def download(
         raise HTTPException(status_code=500, detail="Conversion failed unexpectedly.")
 
     title = (info.get("title") or info.get("id") or "video").strip()
-    # Collapse whitespace, strip anything that isn't filename-safe, and cap the length.
     safe_title = re.sub(r"\s+", " ", title)
     safe_title = re.sub(r"[^\w\- ]", "", safe_title).strip()
     safe_title = safe_title[:30].strip() or "video"
