@@ -168,7 +168,11 @@ def download(
         raise HTTPException(status_code=500, detail="Conversion failed unexpectedly.")
 
     title = (info.get("title") or info.get("id") or "video").strip()
-    safe_title = re.sub(r"[^\w\-. ]", "_", title)[:80] or "video"
+    # Collapse whitespace, strip anything that isn't filename-safe, and cap the length.
+    safe_title = re.sub(r"\s+", " ", title)
+    safe_title = re.sub(r"[^\w\- ]", "", safe_title).strip()
+    safe_title = safe_title[:30].strip() or "video"
+    safe_title = safe_title.replace(" ", "_")
     download_name = f"{safe_title}.{format}"
 
     return FileResponse(

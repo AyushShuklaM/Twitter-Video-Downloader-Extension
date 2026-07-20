@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Snagpost — Twitter/X Video Downloader",
+  "version": "1.0.0",
+  "description": "Grab the video from the tweet/post you're viewing and download it as MP4 or MP3.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": ["activeTab", "scripting", "downloads"],
+  "host_permissions": [
+    "https://twitter.com/*",
+    "https://x.com/*",
+    "http://localhost:8000/*"
+  ]
+}

@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Snagpost — pull the clip off any post</title>
+<style>
+  :root{
+    --ink:#0d1117;
+    --paper:#eef1f5;
+    --line:#c9d0da;
+    --wire:#5b6472;
+    --signal:#ff5a36;
+    --signal-dim:#ffe4da;
+    --mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+    --sans: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding:8vh 20px 60px;
+  }
+  .eyebrow{
+    font-family:var(--mono);
+    font-size:12px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--wire);
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom:18px;
+  }
+  .eyebrow .dot{width:7px;height:7px;border-radius:50%;background:var(--signal);}
+  h1{
+    font-size:clamp(32px, 6vw, 54px);
+    line-height:1.02;
+    letter-spacing:-0.03em;
+    margin:0 0 10px;
+    max-width:680px;
+    text-align:center;
+  }
+  h1 em{
+    font-style:normal;
+    color:var(--signal);
+  }
+  .sub{
+    color:var(--wire);
+    max-width:480px;
+    text-align:center;
+    margin:0 0 44px;
+    font-size:15px;
+  }
+
+  .panel{
+    width:100%;
+    max-width:640px;
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:2px;
+    box-shadow: 0 1px 0 var(--line);
+  }
+  .url-row{
+    display:flex;
+    border-bottom:1px solid var(--line);
+  }
+  .url-row .prefix{
+    font-family:var(--mono);
+    font-size:13px;
+    color:var(--wire);
+    padding:18px 0 18px 18px;
+    user-select:none;
+  }
+  .url-row input{
+    flex:1;
+    border:0;
+    outline:0;
+    padding:18px 18px 18px 8px;
+    font-family:var(--mono);
+    font-size:14px;
+    color:var(--ink);
+    background:transparent;
+  }
+  .url-row input::placeholder{color:#a7aebb;}
+
+  .options{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:14px 18px;
+    flex-wrap:wrap;
+    gap:12px;
+  }
+  .fmt-group{
+    display:flex;
+    gap:0;
+    border:1px solid var(--line);
+    border-radius:2px;
+    overflow:hidden;
+  }
+  .fmt-group button{
+    font-family:var(--mono);
+    font-size:12px;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    padding:9px 16px;
+    background:#fff;
+    border:0;
+    cursor:pointer;
+    color:var(--wire);
+    border-right:1px solid var(--line);
+  }
+  .fmt-group button:last-child{border-right:0;}
+  .fmt-group button.active{background:var(--ink);color:#fff;}
+
+  select#quality{
+    font-family:var(--mono);
+    font-size:12px;
+    letter-spacing:.04em;
+    border:1px solid var(--line);
+    border-radius:2px;
+    padding:9px 10px;
+    background:#fff;
+    color:var(--ink);
+  }
+
+  .go{
+    width:100%;
+    padding:18px;
+    background:var(--ink);
+    color:#fff;
+    border:0;
+    font-family:var(--mono);
+    font-size:13px;
+    letter-spacing:.1em;
+    text-transform:uppercase;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:10px;
+    transition:background .15s ease;
+  }
+  .go:hover{background:#000;}
+  .go:disabled{background:#a7aebb;cursor:not-allowed;}
+  .go .arrow{transition:transform .15s ease;}
+  .go:hover .arrow{transform:translateX(3px);}
+
+  .status{
+    max-width:640px;
+    width:100%;
+    margin-top:16px;
+    font-family:var(--mono);
+    font-size:13px;
+    color:var(--wire);
+    min-height:20px;
+  }
+  .status.err{color:var(--signal);}
+
+  .result{
+    max-width:640px;
+    width:100%;
+    margin-top:18px;
+    display:none;
+    border:1px solid var(--line);
+    background:#fff;
+    padding:16px;
+    gap:14px;
+    align-items:center;
+  }
+  .result.show{display:flex;}
+  .result img{width:88px;height:88px;object-fit:cover;border:1px solid var(--line);flex-shrink:0;}
+  .result .meta{flex:1;min-width:0;}
+  .result .meta .t{font-size:14px;font-weight:600;margin-bottom:4px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .result .meta .u{font-family:var(--mono);font-size:12px;color:var(--wire);}
+  .result a.dl{
+    font-family:var(--mono);
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    background:var(--signal);
+    color:#fff;
+    padding:10px 16px;
+    text-decoration:none;
+    white-space:nowrap;
+  }
+
+  footer{
+    margin-top:60px;
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--wire);
+    text-align:center;
+    max-width:480px;
+  }
+</style>
+</head>
+<body>
+
+  <div class="eyebrow"><span class="dot"></span>PASTE &rarr; RESOLVE &rarr; SAVE</div>
+  <h1>Pull the clip off <em>any</em> post.</h1>
+  <p class="sub">Drop an x.com or twitter.com link below. We'll find the video and hand you back an mp4 or mp3, no login required.</p>
+
+  <div class="panel">
+    <div class="url-row">
+      <span class="prefix">url:</span>
+      <input id="tweetUrl" type="text" placeholder="https://x.com/username/status/1234567890" autocomplete="off" spellcheck="false" />
+    </div>
+    <div class="options">
+      <div class="fmt-group" id="fmtGroup">
+        <button data-fmt="mp4" class="active">MP4</button>
+        <button data-fmt="mp3">MP3</button>
+      </div>
+      <select id="quality">
+        <option value="best">Best quality</option>
+      </select>
+    </div>
+    <button class="go" id="goBtn">
+      <span>Fetch video</span><span class="arrow">&rarr;</span>
+    </button>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <div class="result" id="result">
+    <img id="thumb" src="" alt="" />
+    <div class="meta">
+      <div class="t" id="title"></div>
+      <div class="u" id="uploader"></div>
+    </div>
+    <a class="dl" id="dlLink" href="#">Download</a>
+  </div>
+
+  <footer>
+    Runs against your own backend instance — set API_BASE below to where you're hosting the FastAPI server.
+    For personal use only; respect creators' rights and X's terms of service.
+  </footer>
+
+<script>
+  // Point this at wherever you deploy backend/app.py (see README.md)
+  const API_BASE = "http://localhost:8000";
+
+  const urlInput = document.getElementById('tweetUrl');
+  const fmtGroup = document.getElementById('fmtGroup');
+  const qualitySelect = document.getElementById('quality');
+  const goBtn = document.getElementById('goBtn');
+  const statusEl = document.getElementById('status');
+  const resultEl = document.getElementById('result');
+  const thumbEl = document.getElementById('thumb');
+  const titleEl = document.getElementById('title');
+  const uploaderEl = document.getElementById('uploader');
+  const dlLink = document.getElementById('dlLink');
+
+  let currentFormat = 'mp4';
+
+  fmtGroup.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-fmt]');
+    if (!btn) return;
+    currentFormat = btn.dataset.fmt;
+    [...fmtGroup.children].forEach(b => b.classList.toggle('active', b === btn));
+    qualitySelect.style.display = currentFormat === 'mp3' ? 'none' : '';
+  });
+
+  function setStatus(msg, isErr=false){
+    statusEl.textContent = msg;
+    statusEl.classList.toggle('err', isErr);
+  }
+
+  // Allow the browser extension (or query string) to prefill the link
+  const params = new URLSearchParams(location.search);
+  if (params.get('url')) urlInput.value = params.get('url');
+
+  goBtn.addEventListener('click', async () => {
+    const url = urlInput.value.trim();
+    if (!/^https?:\/\/(www\.)?(twitter|x)\.com\/[^/]+\/status(es)?\/\d+/.test(url)) {
+      setStatus('That doesn\'t look like a twitter.com or x.com post link.', true);
+      return;
+    }
+
+    resultEl.classList.remove('show');
+    goBtn.disabled = true;
+    setStatus('Looking up the post…');
+
+    try {
+      const res = await fetch(`${API_BASE}/api/info`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({url})
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Lookup failed.');
+
+      qualitySelect.innerHTML = '';
+      (data.qualities || ['best']).forEach(q => {
+        const opt = document.createElement('option');
+        opt.value = q;
+        opt.textContent = q === 'best' ? 'Best quality' : `${q}p`;
+        qualitySelect.appendChild(opt);
+      });
+
+      titleEl.textContent = data.title || 'Video';
+      uploaderEl.textContent = data.uploader ? `@${data.uploader}` : '';
+      thumbEl.src = data.thumbnail || '';
+      thumbEl.style.display = data.thumbnail ? '' : 'none';
+
+      const quality = currentFormat === 'mp3' ? 'best' : (qualitySelect.value || 'best');
+      dlLink.href = `${API_BASE}/api/download?url=${encodeURIComponent(url)}&format=${currentFormat}&quality=${quality}`;
+
+      resultEl.classList.add('show');
+      setStatus('Found it. Choose a quality if needed, then download.');
+    } catch (err) {
+      setStatus(err.message || 'Something went wrong.', true);
+    } finally {
+      goBtn.disabled = false;
+    }
+  });
+
+  qualitySelect.addEventListener('change', () => {
+    const url = urlInput.value.trim();
+    if (dlLink.href && url) {
+      dlLink.href = `${API_BASE}/api/download?url=${encodeURIComponent(url)}&format=${currentFormat}&quality=${qualitySelect.value}`;
+    }
+  });
+</script>
+</body>
+</html>

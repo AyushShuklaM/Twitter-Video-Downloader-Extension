@@ -1,0 +1,117 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="UTF-8" />
+<style>
+  :root{
+    --ink:#0d1117;
+    --paper:#eef1f5;
+    --line:#c9d0da;
+    --wire:#5b6472;
+    --signal:#ff5a36;
+    --mono: 'SF Mono', Consolas, monospace;
+    --sans: -apple-system, 'Segoe UI', sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    width:320px;
+    margin:0;
+    background:var(--paper);
+    font-family:var(--sans);
+    color:var(--ink);
+    padding:16px;
+  }
+  .head{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin-bottom:12px;
+  }
+  .head .dot{width:7px;height:7px;border-radius:50%;background:var(--signal);}
+  .head span{
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:.1em;
+    text-transform:uppercase;
+    color:var(--wire);
+  }
+  .url-box{
+    background:#fff;
+    border:1px solid var(--line);
+    padding:10px;
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--wire);
+    word-break:break-all;
+    margin-bottom:12px;
+    max-height:52px;
+    overflow:hidden;
+  }
+  .url-box.empty{color:#a7aebb;font-style:italic;}
+  .fmt-group{
+    display:flex;
+    border:1px solid var(--line);
+    margin-bottom:12px;
+  }
+  .fmt-group button{
+    flex:1;
+    font-family:var(--mono);
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    padding:8px;
+    background:#fff;
+    border:0;
+    border-right:1px solid var(--line);
+    cursor:pointer;
+    color:var(--wire);
+  }
+  .fmt-group button:last-child{border-right:0;}
+  .fmt-group button.active{background:var(--ink);color:#fff;}
+  button.go{
+    width:100%;
+    padding:12px;
+    background:var(--ink);
+    color:#fff;
+    border:0;
+    font-family:var(--mono);
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:.08em;
+    cursor:pointer;
+  }
+  button.go:disabled{background:#a7aebb;cursor:not-allowed;}
+  .status{
+    margin-top:10px;
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--wire);
+    min-height:14px;
+  }
+  .status.err{color:var(--signal);}
+  a.open-site{
+    display:block;
+    margin-top:10px;
+    text-align:center;
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--wire);
+    text-decoration:underline;
+    cursor:pointer;
+  }
+</style>
+</head>
+<body>
+  <div class="head"><span class="dot"></span><span>Snagpost</span></div>
+  <div class="url-box empty" id="urlBox">No X/Twitter post detected on this tab</div>
+  <div class="fmt-group" id="fmtGroup">
+    <button data-fmt="mp4" class="active">MP4</button>
+    <button data-fmt="mp3">MP3</button>
+  </div>
+  <button class="go" id="goBtn" disabled>Download</button>
+  <div class="status" id="status"></div>
+  <a class="open-site" id="openSite">Open full site instead →</a>
+
+  <script src="popup.js"></script>
+</body>
+</html>
