@@ -89,8 +89,7 @@ def get_info(payload: InfoRequest):
         opts = _base_ydl_opts(Path(tmp))
         opts["skip_download"] = True
         
-        # ADD THIS LINE: Tells yt-dlp not to crash if it can't find complex merged formats
-        opts["format"] = "best" 
+       
         
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
