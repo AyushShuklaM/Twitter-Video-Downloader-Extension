@@ -5,4 +5,7 @@ venv/
 *.egg-info/
 .DS_Store
 cookies.txt
+<<<<<<< HEAD
 
+=======
+>>>>>>> ca82b7489edfc71f774522d0b0f3224f25fb1d40
