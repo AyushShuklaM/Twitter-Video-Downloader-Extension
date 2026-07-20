@@ -1,7 +1,7 @@
-// Point this at wherever you deploy backend/app.py (see README.md)
-const API_BASE = "http://localhost:8000";
-// Point this at wherever you deploy frontend/index.html (used for the "open full site" link)
-const FRONTEND_URL = "http://localhost:5500/index.html";
+// Backend API (deployed on Render)
+const API_BASE = "https://viddownloader-a7z9.onrender.com";
+// Full website (deployed on Vercel) — used for the "open full site" link
+const FRONTEND_URL = "https://twitter-video-downloader-extension.vercel.app";
 
 const TWEET_URL_RE = /^https?:\/\/(www\.)?(twitter|x)\.com\/[^/]+\/status(es)?\/\d+/;
 
