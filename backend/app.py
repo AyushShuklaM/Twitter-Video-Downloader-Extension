@@ -59,9 +59,10 @@ class InfoRequest(BaseModel):
         if not GENERAL_URL_RE.match(v):
             raise ValueError("That doesn't look like a valid URL.")
         return v
+    
 
 
- def _base_ydl_opts(workdir: Path) -> dict:
+    def _base_ydl_opts(workdir: Path) -> dict:
     return {
         "quiet": True,
         "no_warnings": True,
@@ -83,6 +84,8 @@ class InfoRequest(BaseModel):
             )
         },
     }
+
+
 
 
 @app.get("/api/health")
