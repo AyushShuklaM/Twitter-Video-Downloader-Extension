@@ -61,13 +61,21 @@ class InfoRequest(BaseModel):
         return v
 
 
-def _base_ydl_opts(workdir: Path) -> dict:
+ def _base_ydl_opts(workdir: Path) -> dict:
     return {
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
         "outtmpl": str(workdir / "%(id)s.%(ext)s"),
-        "cookiefile": "cookies.txt", # Add this line
+        "cookiefile": "cookies.txt", 
+        
+        # THE YOUTUBE FIX: Spoof mobile and TV clients to bypass web player blocks
+        "extractor_args": {
+            "youtube": {
+                "client": ["android", "ios", "tv"]
+            }
+        },
+        
         "http_headers": {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
