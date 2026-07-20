@@ -30,14 +30,16 @@ fmtGroup.addEventListener('click', (e) => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const tabUrl = tab?.url || '';
 
-  if (TWEET_URL_RE.test(tabUrl)) {
+  // Simple check for any http/https URL
+  if (/^https?:\/\/.+/.test(tabUrl)) {
     tweetUrl = tabUrl.split('?')[0];
     urlBox.textContent = tweetUrl;
     urlBox.classList.remove('empty');
     goBtn.disabled = false;
   } else {
-    urlBox.textContent = 'Open a specific post (a tweet with /status/…) to enable this.';
+    urlBox.textContent = 'Open a valid webpage to enable this.';
   }
+
 
   openSite.addEventListener('click', () => {
     const target = tweetUrl

@@ -41,8 +41,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-TWEET_URL_RE = re.compile(
-    r"^https?://(www\.)?(twitter|x)\.com/[^/]+/status(es)?/\d+"
+GENERAL_URL_RE = re.compile(
+    r"^https?://[^\s/$.?#].[^\s]*$"
 )
 
 TMP_ROOT = Path(tempfile.gettempdir()) / "twdl"
@@ -56,8 +56,8 @@ class InfoRequest(BaseModel):
     @classmethod
     def validate_url(cls, v: str) -> str:
         v = v.strip()
-        if not TWEET_URL_RE.match(v):
-            raise ValueError("That doesn't look like a twitter.com or x.com post URL.")
+        if not GENERAL_URL_RE.match(v):
+            raise ValueError("That doesn't look like a valid URL.")
         return v
 
 
@@ -67,7 +67,7 @@ def _base_ydl_opts(workdir: Path) -> dict:
         "no_warnings": True,
         "noplaylist": True,
         "outtmpl": str(workdir / "%(id)s.%(ext)s"),
-        # Twitter frequently needs a normal-looking UA to serve video variants.
+        "cookiefile": "cookies.txt", # Add this line
         "http_headers": {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -124,8 +124,8 @@ def download(
     format: str = Query("mp4", pattern="^(mp4|mp3)$"),
     quality: Optional[str] = Query("best"),
 ):
-    if not TWEET_URL_RE.match(url.strip()):
-        raise HTTPException(status_code=400, detail="Invalid tweet URL.")
+    if not GENERAL_URL_RE.match(url.strip()):
+        raise HTTPException(status_code=400, detail="Invalid URL.")
 
     job_dir = TMP_ROOT / uuid.uuid4().hex
     job_dir.mkdir(parents=True, exist_ok=True)

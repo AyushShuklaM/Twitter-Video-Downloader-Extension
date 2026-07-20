@@ -280,10 +280,12 @@
 
   goBtn.addEventListener('click', async () => {
     const url = urlInput.value.trim();
-    if (!/^https?:\/\/(www\.)?(twitter|x)\.com\/[^/]+\/status(es)?\/\d+/.test(url)) {
-      setStatus('That doesn\'t look like a twitter.com or x.com post link.', true);
+    // Update this regex check
+    if (!/^https?:\/\/[^\s/$.?#].[^\s]*$/.test(url)) {
+      setStatus('That doesn\'t look like a valid URL.', true);
       return;
     }
+
 
     resultEl.classList.remove('show');
     goBtn.disabled = true;
