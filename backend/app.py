@@ -7,9 +7,10 @@ no public URL, so there's nothing a link-based tool can reach.)
 
 Endpoints:
   GET  /api/health
-  POST /api/info        { "url": "<post url>" }  -> metadata + available qualities
-  GET  /api/download     ?url=<post url>&format=mp4|mp3&quality=<height or 'best'>
-                          -> streams the converted file back to the client
+  POST /api/info                     { "url": "<post url>" }  -> metadata + available qualities
+  POST /api/download/start           ?url=&format=mp4|mp3&quality=  -> { job_id }
+  GET  /api/download/progress/{id}   -> { status, percent, speed, eta }
+  GET  /api/download/file/{id}       -> streams the finished file back to the client
 
 Requires:
   pip install -r requirements.txt
@@ -23,6 +24,8 @@ import os
 import re
 import shutil
 import tempfile
+import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -63,6 +66,12 @@ SUPPORTED_URL_RE = re.compile(
 TMP_ROOT = Path(tempfile.gettempdir()) / "twdl"
 TMP_ROOT.mkdir(exist_ok=True)
 
+# In-memory job store: job_id -> progress/result info.
+# Fine for a single-process deployment like this one; wouldn't survive a
+# restart or scale across multiple worker processes.
+JOBS: dict = {}
+JOBS_LOCK = threading.Lock()
+
 
 class InfoRequest(BaseModel):
     url: str
@@ -86,13 +95,13 @@ def _base_ydl_opts(workdir: Path) -> dict:
         "noplaylist": True,
         "outtmpl": str(workdir / "%(id)s.%(ext)s"),
         # Speed: fetch multiple fragments of a video in parallel instead of one-by-one
-        "concurrent_fragment_downloads": 8,
+        "concurrent_fragment_downloads": 32,
         # Speed: use aria2c (multi-connection downloader) instead of yt-dlp's built-in
         # single-connection downloader, when available. Falls back silently if aria2c
         # isn't installed (see Dockerfile).
         "external_downloader": "aria2c",
         "external_downloader_args": {
-            "aria2c": ["-x", "8", "-s", "8", "-k", "1M"]
+            "aria2c": ["-x", "16", "-s", "16", "-k", "1M", "-j", "16"]
         },
         # Twitter frequently needs a normal-looking UA to serve video variants.
         "http_headers": {
@@ -145,28 +154,46 @@ def get_info(payload: InfoRequest):
         }
 
 
-@app.get("/api/download")
-def download(
-    url: str = Query(...),
-    format: str = Query("mp4", pattern="^(mp4|mp3)$"),
-    quality: Optional[str] = Query("best"),
-):
-    if not SUPPORTED_URL_RE.match(url.strip()):
-        raise HTTPException(status_code=400, detail="Invalid or unsupported URL.")
-
-    job_dir = TMP_ROOT / uuid.uuid4().hex
+def _run_download_job(job_id: str, url: str, format: str, quality: Optional[str]):
+    job_dir = TMP_ROOT / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
 
+    def progress_hook(d):
+        with JOBS_LOCK:
+            job = JOBS.get(job_id)
+            if not job:
+                return
+            if d["status"] == "downloading":
+                total = d.get("total_bytes") or d.get("total_bytes_estimate")
+                downloaded = d.get("downloaded_bytes") or 0
+                percent = round(downloaded / total * 100, 1) if total else None
+                job.update({
+                    "status": "downloading",
+                    "percent": percent,
+                    "speed": d.get("speed"),
+                    "eta": d.get("eta"),
+                })
+            elif d["status"] == "finished":
+                job.update({"status": "processing", "percent": 95})
+
+    def postprocessor_hook(d):
+        with JOBS_LOCK:
+            job = JOBS.get(job_id)
+            if not job:
+                return
+            if d["status"] == "started":
+                job.update({"status": "processing", "percent": 97})
+            elif d["status"] == "finished":
+                job.update({"status": "processing", "percent": 99})
+
     opts = _base_ydl_opts(job_dir)
+    opts["progress_hooks"] = [progress_hook]
+    opts["postprocessor_hooks"] = [postprocessor_hook]
 
     if format == "mp3":
         opts["format"] = "bestaudio/best"
         opts["postprocessors"] = [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
-            }
+            {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}
         ]
     else:
         if quality and quality != "best":
@@ -183,28 +210,85 @@ def download(
                 filename = str(Path(filename).with_suffix(".mp3"))
             elif not filename.endswith(".mp4"):
                 filename = str(Path(filename).with_suffix(".mp4"))
-    except yt_dlp.utils.DownloadError as e:
-        shutil.rmtree(job_dir, ignore_errors=True)
-        raise HTTPException(
-            status_code=422,
-            detail="Couldn't download that video. It may not exist, be private, or contain no video.",
-        ) from e
 
-    if not os.path.exists(filename):
-        shutil.rmtree(job_dir, ignore_errors=True)
-        raise HTTPException(status_code=500, detail="Conversion failed unexpectedly.")
+        if not os.path.exists(filename):
+            raise RuntimeError("Conversion failed unexpectedly.")
 
-    title = (info.get("title") or info.get("id") or "video").strip()
-    # Collapse whitespace, strip anything that isn't filename-safe, and cap the length.
-    safe_title = re.sub(r"\s+", " ", title)
-    safe_title = re.sub(r"[^\w\- ]", "", safe_title).strip()
-    safe_title = safe_title[:30].strip() or "video"
-    safe_title = safe_title.replace(" ", "_")
-    download_name = f"{safe_title}.{format}"
+        title = (info.get("title") or info.get("id") or "video").strip()
+        safe_title = re.sub(r"\s+", " ", title)
+        safe_title = re.sub(r"[^\w\- ]", "", safe_title).strip()
+        safe_title = safe_title[:30].strip() or "video"
+        safe_title = safe_title.replace(" ", "_")
+        download_name = f"{safe_title}.{format}"
+
+        with JOBS_LOCK:
+            JOBS[job_id].update({
+                "status": "finished",
+                "percent": 100,
+                "filepath": filename,
+                "download_name": download_name,
+                "job_dir": str(job_dir),
+            })
+    except Exception as e:
+        with JOBS_LOCK:
+            JOBS[job_id].update({"status": "error", "error": str(e)})
+        shutil.rmtree(job_dir, ignore_errors=True)
+
+
+@app.post("/api/download/start")
+def start_download(
+    url: str = Query(...),
+    format: str = Query("mp4", pattern="^(mp4|mp3)$"),
+    quality: Optional[str] = Query("best"),
+):
+    if not SUPPORTED_URL_RE.match(url.strip()):
+        raise HTTPException(status_code=400, detail="Invalid or unsupported URL.")
+
+    job_id = uuid.uuid4().hex
+    with JOBS_LOCK:
+        JOBS[job_id] = {"status": "starting", "percent": 0, "created": time.time()}
+
+    thread = threading.Thread(
+        target=_run_download_job, args=(job_id, url.strip(), format, quality), daemon=True
+    )
+    thread.start()
+
+    return {"job_id": job_id}
+
+
+@app.get("/api/download/progress/{job_id}")
+def download_progress(job_id: str):
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Unknown job id.")
+        # Don't leak internal file paths to the client
+        return {k: v for k, v in job.items() if k not in ("filepath", "job_dir")}
+
+
+@app.get("/api/download/file/{job_id}")
+def download_file(job_id: str):
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Unknown job id.")
+        if job["status"] == "error":
+            raise HTTPException(status_code=422, detail=job.get("error", "Download failed."))
+        if job["status"] != "finished":
+            raise HTTPException(status_code=409, detail="Not finished yet.")
+        filepath = job["filepath"]
+        download_name = job["download_name"]
+        job_dir = job["job_dir"]
 
     return FileResponse(
-        path=filename,
+        path=filepath,
         filename=download_name,
-        media_type="video/mp4" if format == "mp4" else "audio/mpeg",
-        background=BackgroundTask(shutil.rmtree, job_dir, ignore_errors=True),
+        media_type="video/mp4" if download_name.endswith(".mp4") else "audio/mpeg",
+        background=BackgroundTask(_cleanup_job, job_id, job_dir),
     )
+
+
+def _cleanup_job(job_id: str, job_dir: str):
+    shutil.rmtree(job_dir, ignore_errors=True)
+    with JOBS_LOCK:
+        JOBS.pop(job_id, None)

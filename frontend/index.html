@@ -181,6 +181,23 @@
   .result .meta .t{font-size:14px;font-weight:600;margin-bottom:4px;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .result .meta .u{font-family:var(--mono);font-size:12px;color:var(--wire);}
+  .progress-track{
+    display:none;
+    margin-top:8px;
+    height:5px;
+    width:100%;
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:3px;
+    overflow:hidden;
+  }
+  .progress-track.show{display:block;}
+  .progress-fill{
+    height:100%;
+    width:0%;
+    background:var(--signal);
+    transition:width .2s ease;
+  }
   .result a.dl{
     font-family:var(--mono);
     font-size:12px;
@@ -207,7 +224,7 @@
 
   <div class="eyebrow"><span class="dot"></span>PASTE &rarr; RESOLVE &rarr; SAVE</div>
   <h1>Pull the clip off <em>any</em> post.</h1>
-  <p class="sub">Drop a site link below. We'll find the video and hand you back an mp4 or mp3, no login required.</p>
+  <p class="sub">Drop an x.com or twitter.com link below. We'll find the video and hand you back an mp4 or mp3, no login required.</p>
 
   <div class="panel">
     <div class="url-row">
@@ -235,6 +252,9 @@
     <div class="meta">
       <div class="t" id="title"></div>
       <div class="u" id="uploader"></div>
+      <div class="progress-track" id="progressTrack">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
     </div>
     <a class="dl" id="dlLink" href="#" download>Download</a>
   </div>
@@ -273,6 +293,8 @@
   const titleEl = document.getElementById('title');
   const uploaderEl = document.getElementById('uploader');
   const dlLink = document.getElementById('dlLink');
+  const progressTrack = document.getElementById('progressTrack');
+  const progressFill = document.getElementById('progressFill');
 
   let currentFormat = 'mp4';
 
@@ -329,11 +351,11 @@
       thumbEl.src = data.thumbnail || '';
       thumbEl.style.display = data.thumbnail ? '' : 'none';
 
-      const quality = currentFormat === 'mp3' ? 'best' : (qualitySelect.value || 'best');
-      const downloadUrl = `${base}/api/download?url=${encodeURIComponent(url)}&format=${currentFormat}&quality=${quality}`;
-      dlLink.dataset.downloadUrl = downloadUrl;
+      dlLink.dataset.url = url;
 
       resultEl.classList.add('show');
+      progressTrack.classList.remove('show');
+      progressFill.style.width = '0%';
       setStatus('Found it. Choose a quality if needed, then download.');
     } catch (err) {
       const hint = isYouTubeUrl(url)
@@ -345,22 +367,65 @@
     }
   });
 
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
   dlLink.addEventListener('click', async (e) => {
     e.preventDefault();
-    const downloadUrl = dlLink.dataset.downloadUrl;
-    if (!downloadUrl) return;
+    const url = dlLink.dataset.url;
+    if (!url) return;
 
-    const url = urlInput.value.trim();
+    const base = backendFor(url);
+    const headers = headersFor(url);
+    const quality = currentFormat === 'mp3' ? 'best' : (qualitySelect.value || 'best');
     const originalText = dlLink.textContent;
-    dlLink.textContent = 'Downloading…';
+
+    dlLink.textContent = 'Starting…';
+    dlLink.style.pointerEvents = 'none';
+    progressTrack.classList.add('show');
+    progressFill.style.width = '0%';
+
     try {
-      const res = await fetch(downloadUrl, { headers: headersFor(url) });
-      if (!res.ok) throw new Error('Download failed.');
-      const blob = await res.blob();
+      // Kick off the download as a background job on the server
+      const startRes = await fetch(
+        `${base}/api/download/start?url=${encodeURIComponent(url)}&format=${currentFormat}&quality=${quality}`,
+        { method: 'POST', headers }
+      );
+      const startData = await startRes.json();
+      if (!startRes.ok) throw new Error(startData.detail || 'Could not start download.');
+      const jobId = startData.job_id;
+
+      // Poll progress until it's finished (or errors)
+      let finished = false;
+      while (!finished) {
+        await sleep(700);
+        const progRes = await fetch(`${base}/api/download/progress/${jobId}`, { headers });
+        const prog = await progRes.json();
+        if (!progRes.ok) throw new Error(prog.detail || 'Lost track of the download.');
+
+        if (prog.status === 'error') {
+          throw new Error(prog.error || 'Download failed.');
+        }
+        if (prog.status === 'downloading' && prog.percent != null) {
+          progressFill.style.width = `${prog.percent}%`;
+          dlLink.textContent = `${Math.round(prog.percent)}%`;
+        } else if (prog.status === 'processing') {
+          progressFill.style.width = `${prog.percent || 97}%`;
+          dlLink.textContent = 'Converting…';
+        }
+        if (prog.status === 'finished') {
+          progressFill.style.width = '100%';
+          dlLink.textContent = 'Saving…';
+          finished = true;
+        }
+      }
+
+      // Fetch the actual finished file and trigger a save
+      const fileRes = await fetch(`${base}/api/download/file/${jobId}`, { headers });
+      if (!fileRes.ok) throw new Error('Could not retrieve the finished file.');
+      const blob = await fileRes.blob();
       const objectUrl = URL.createObjectURL(blob);
 
-      // Pull filename from the server's Content-Disposition header if present
-      const disposition = res.headers.get('Content-Disposition') || '';
+      const disposition = fileRes.headers.get('Content-Disposition') || '';
       const match = disposition.match(/filename="?([^"]+)"?/);
       const filename = match ? match[1] : `download.${currentFormat}`;
 
@@ -371,18 +436,15 @@
       tempLink.click();
       tempLink.remove();
       URL.revokeObjectURL(objectUrl);
+
+      setStatus('Downloaded.');
     } catch (err) {
       setStatus(err.message || 'Download failed.', true);
     } finally {
       dlLink.textContent = originalText;
-    }
-  });
-
-  qualitySelect.addEventListener('change', () => {
-    const url = urlInput.value.trim();
-    if (dlLink.dataset.downloadUrl && url) {
-      const base = backendFor(url);
-      dlLink.dataset.downloadUrl = `${base}/api/download?url=${encodeURIComponent(url)}&format=${currentFormat}&quality=${qualitySelect.value}`;
+      dlLink.style.pointerEvents = '';
+      progressTrack.classList.remove('show');
+      progressFill.style.width = '0%';
     }
   });
 </script>
