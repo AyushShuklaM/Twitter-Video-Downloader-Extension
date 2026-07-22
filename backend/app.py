@@ -94,22 +94,13 @@ def _base_ydl_opts(workdir: Path) -> dict:
         "no_warnings": True,
         "noplaylist": True,
         "outtmpl": str(workdir / "%(id)s.%(ext)s"),
-        # Speed: fetch multiple fragments of a video in parallel instead of one-by-one
         "concurrent_fragment_downloads": 32,
-        # Speed: use aria2c (multi-connection downloader) instead of yt-dlp's built-in
-        # single-connection downloader, when available. Falls back silently if aria2c
-        # isn't installed (see Dockerfile).
         "external_downloader": "aria2c",
         "external_downloader_args": {
             "aria2c": ["-x", "16", "-s", "16", "-k", "1M", "-j", "16"]
         },
-        # Twitter frequently needs a normal-looking UA to serve video variants.
-        "http_headers": {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-            )
-        },
+        # Tell YouTube this request is coming from the Android app, not a web scraper
+        "extractor_args": {"youtube": ["player_client:android,web"]}
     }
 
 
