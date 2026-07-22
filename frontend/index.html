@@ -207,12 +207,12 @@
 
   <div class="eyebrow"><span class="dot"></span>PASTE &rarr; RESOLVE &rarr; SAVE</div>
   <h1>Pull the clip off <em>any</em> post.</h1>
-  <p class="sub">Drop an  site link below. We'll find the video and hand you back an mp4 or mp3, no login required.</p>
+  <p class="sub">Drop a site link below. We'll find the video and hand you back an mp4 or mp3, no login required.</p>
 
   <div class="panel">
     <div class="url-row">
       <span class="prefix">url:</span>
-      <input id="Url" type="text" placeholder="https://x.com/username/status/1234567890" autocomplete="off" spellcheck="false" />
+      <input id="tweetUrl" type="text" placeholder="https://x.com/username/status/1234567890" autocomplete="off" spellcheck="false" />
     </div>
     <div class="options">
       <div class="fmt-group" id="fmtGroup">
@@ -236,16 +236,32 @@
       <div class="t" id="title"></div>
       <div class="u" id="uploader"></div>
     </div>
-    <a class="dl" id="dlLink" href="#">Download</a>
+    <a class="dl" id="dlLink" href="#" download>Download</a>
   </div>
 
   <footer>
-    respect creators' rights and sites's terms of service.
+    Runs against two backends — YouTube routes to a local machine (see API_BASE_YOUTUBE), everything else to the live one (API_BASE_MAIN).
+    For personal use only; respect creators' rights and X's terms of service.
   </footer>
 
 <script>
-  // Backend API (deployed on Render)
-  const API_BASE = "https://viddownloader-a7z9.onrender.com";
+  // Render handles everything except YouTube (blocked by YouTube's anti-bot on cloud IPs)
+  const API_BASE_MAIN = "https://viddownloader-a7z9.onrender.com";
+  // Your local PC, tunneled via ngrok — only used for YouTube links.
+  // Must be running (uvicorn + `ngrok http --url=... 8000`) for YouTube downloads to work.
+  const API_BASE_YOUTUBE = "https://garnish-unpopular-parade.ngrok-free.dev";
+  // Bypasses ngrok's one-time browser warning page so fetch() gets JSON, not HTML
+  const NGROK_HEADERS = {'ngrok-skip-browser-warning': 'true'};
+
+  function isYouTubeUrl(url) {
+    return /(youtube\.com|youtu\.be)/i.test(url);
+  }
+  function backendFor(url) {
+    return isYouTubeUrl(url) ? API_BASE_YOUTUBE : API_BASE_MAIN;
+  }
+  function headersFor(url) {
+    return isYouTubeUrl(url) ? NGROK_HEADERS : {};
+  }
 
   const urlInput = document.getElementById('tweetUrl');
   const fmtGroup = document.getElementById('fmtGroup');
@@ -277,23 +293,24 @@
   const params = new URLSearchParams(location.search);
   if (params.get('url')) urlInput.value = params.get('url');
 
+  const SUPPORTED_URL_RE = /^https?:\/\/([a-z0-9-]+\.)?(twitter\.com|x\.com|youtube\.com|youtu\.be|instagram\.com|reddit\.com|redd\.it|pinterest\.[a-z.]+|pin\.it|snapchat\.com|sharechat\.com)\/\S+/i;
+
   goBtn.addEventListener('click', async () => {
     const url = urlInput.value.trim();
-    // Update this regex check
-    if (!/^https?:\/\/[^\s/$.?#].[^\s]*$/.test(url)) {
-      setStatus('That doesn\'t look like a valid URL.', true);
+    if (!SUPPORTED_URL_RE.test(url)) {
+      setStatus('That doesn\'t look like a supported link (Twitter/X, YouTube, Instagram, Reddit, Pinterest, Snapchat, ShareChat).', true);
       return;
     }
 
-
     resultEl.classList.remove('show');
     goBtn.disabled = true;
-    setStatus('Looking up the post…');
+    setStatus(isYouTubeUrl(url) ? 'Looking up on your local backend…' : 'Looking up the post…');
 
     try {
-      const res = await fetch(`${API_BASE}/api/info`, {
+      const base = backendFor(url);
+      const res = await fetch(`${base}/api/info`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', ...headersFor(url)},
         body: JSON.stringify({url})
       });
       const data = await res.json();
@@ -313,21 +330,59 @@
       thumbEl.style.display = data.thumbnail ? '' : 'none';
 
       const quality = currentFormat === 'mp3' ? 'best' : (qualitySelect.value || 'best');
-      dlLink.href = `${API_BASE}/api/download?url=${encodeURIComponent(url)}&format=${currentFormat}&quality=${quality}`;
+      const downloadUrl = `${base}/api/download?url=${encodeURIComponent(url)}&format=${currentFormat}&quality=${quality}`;
+      dlLink.dataset.downloadUrl = downloadUrl;
 
       resultEl.classList.add('show');
       setStatus('Found it. Choose a quality if needed, then download.');
     } catch (err) {
-      setStatus(err.message || 'Something went wrong.', true);
+      const hint = isYouTubeUrl(url)
+        ? ' (Make sure your local backend + ngrok tunnel are running for YouTube links.)'
+        : '';
+      setStatus((err.message || 'Something went wrong.') + hint, true);
     } finally {
       goBtn.disabled = false;
     }
   });
 
+  dlLink.addEventListener('click', async (e) => {
+    e.preventDefault();
+    const downloadUrl = dlLink.dataset.downloadUrl;
+    if (!downloadUrl) return;
+
+    const url = urlInput.value.trim();
+    const originalText = dlLink.textContent;
+    dlLink.textContent = 'Downloading…';
+    try {
+      const res = await fetch(downloadUrl, { headers: headersFor(url) });
+      if (!res.ok) throw new Error('Download failed.');
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+
+      // Pull filename from the server's Content-Disposition header if present
+      const disposition = res.headers.get('Content-Disposition') || '';
+      const match = disposition.match(/filename="?([^"]+)"?/);
+      const filename = match ? match[1] : `download.${currentFormat}`;
+
+      const tempLink = document.createElement('a');
+      tempLink.href = objectUrl;
+      tempLink.download = filename;
+      document.body.appendChild(tempLink);
+      tempLink.click();
+      tempLink.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      setStatus(err.message || 'Download failed.', true);
+    } finally {
+      dlLink.textContent = originalText;
+    }
+  });
+
   qualitySelect.addEventListener('change', () => {
     const url = urlInput.value.trim();
-    if (dlLink.href && url) {
-      dlLink.href = `${API_BASE}/api/download?url=${encodeURIComponent(url)}&format=${currentFormat}&quality=${qualitySelect.value}`;
+    if (dlLink.dataset.downloadUrl && url) {
+      const base = backendFor(url);
+      dlLink.dataset.downloadUrl = `${base}/api/download?url=${encodeURIComponent(url)}&format=${currentFormat}&quality=${qualitySelect.value}`;
     }
   });
 </script>
