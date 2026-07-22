@@ -407,8 +407,13 @@
           dlLink.textContent = 'Converting…';
         }
         if (prog.status === 'finished') {
-          progressFill.style.width = '100%';
-          finished = true;
+           progressFill.style.width = '100%';
+  
+  // Hand the finished job directly to the browser's native download manager:
+        const fileUrl = `${base}/api/download/file/${jobId}`;
+        window.location.href = fileUrl; 
+
+        finished = true;
         }
       }
 
