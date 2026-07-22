@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Snagpost — Twitter/X Video Downloader",
+  "name": "Snagpost —  Video Downloader",
   "version": "1.0.0",
-  "description": "Grab the video from the tweet/post you're viewing and download it as MP4 or MP3.",
+  "description": "Grab the video from the site you're viewing and download it as MP4 or MP3.",
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
@@ -17,8 +17,24 @@
     "128": "icons/icon128.png"
   },
   "permissions": ["activeTab", "scripting", "downloads"],
-   "host_permissions": [
-    "<all_urls>",
-    "https://viddownloader-a7z9.onrender.com/*"
+  "host_permissions": [
+    "https://twitter.com/*",
+    "https://x.com/*",
+    "https://youtube.com/*",
+    "https://www.youtube.com/*",
+    "https://youtu.be/*",
+    "https://instagram.com/*",
+    "https://www.instagram.com/*",
+    "https://reddit.com/*",
+    "https://www.reddit.com/*",
+    "https://redd.it/*",
+    "https://pinterest.com/*",
+    "https://www.pinterest.com/*",
+    "https://pin.it/*",
+    "https://snapchat.com/*",
+    "https://www.snapchat.com/*",
+    "https://sharechat.com/*",
+    "https://viddownloader-a7z9.onrender.com/*",
+    "https://garnish-unpopular-parade.ngrok-free.dev/*"
   ]
 }
