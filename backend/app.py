@@ -1,11 +1,22 @@
 """
-Twitter/X & Universal Video Downloader — Backend API
+Multi-platform video downloader — backend API
+
+Supports: Twitter/X, YouTube, Instagram, Reddit, Pinterest, Snapchat, ShareChat.
+(Not supported: Messenger — its videos live inside private conversations with
+no public URL, so there's nothing a link-based tool can reach.)
 
 Endpoints:
   GET  /api/health
-  POST /api/info        { "url": "<video url>" }  -> metadata + available qualities
-  GET  /api/download    ?url=<video url>&format=mp4|mp3&quality=<height or 'best'>
-                        -> streams the converted file back to the client
+  POST /api/info        { "url": "<post url>" }  -> metadata + available qualities
+  GET  /api/download     ?url=<post url>&format=mp4|mp3&quality=<height or 'best'>
+                          -> streams the converted file back to the client
+
+Requires:
+  pip install -r requirements.txt
+  ffmpeg installed and on PATH (needed for mp3 extraction and muxing)
+
+Run:
+  uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 """
 
 import os
@@ -23,18 +34,30 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, field_validator
 from starlette.background import BackgroundTask
 
-app = FastAPI(title="Universal Video Downloader API")
+app = FastAPI(title="Multi-Platform Video Downloader API")
 
-# Allow the extension + web frontend to call this API from any origin.
+# Allow the extension + the web frontend to call this API from any origin.
+# Tighten this to your real frontend/extension origin(s) before deploying publicly.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
 )
 
-GENERAL_URL_RE = re.compile(
-    r"^https?://[^\s/$.?#].[^\s]*$"
+# Domains we accept. Messenger is intentionally excluded — see module docstring.
+SUPPORTED_DOMAINS = (
+    r"(twitter\.com|x\.com|"
+    r"youtube\.com|youtu\.be|"
+    r"instagram\.com|"
+    r"reddit\.com|redd\.it|"
+    r"pinterest\.[a-z.]+|pin\.it|"
+    r"snapchat\.com|"
+    r"sharechat\.com)"
+)
+SUPPORTED_URL_RE = re.compile(
+    rf"^https?://([a-z0-9-]+\.)?{SUPPORTED_DOMAINS}/\S+", re.IGNORECASE
 )
 
 TMP_ROOT = Path(tempfile.gettempdir()) / "twdl"
@@ -48,8 +71,11 @@ class InfoRequest(BaseModel):
     @classmethod
     def validate_url(cls, v: str) -> str:
         v = v.strip()
-        if not GENERAL_URL_RE.match(v):
-            raise ValueError("That doesn't look like a valid URL.")
+        if not SUPPORTED_URL_RE.match(v):
+            raise ValueError(
+                "That doesn't look like a supported link. Supported: "
+                "Twitter/X, YouTube, Instagram, Reddit, Pinterest, Snapchat, ShareChat."
+            )
         return v
 
 
@@ -59,15 +85,16 @@ def _base_ydl_opts(workdir: Path) -> dict:
         "no_warnings": True,
         "noplaylist": True,
         "outtmpl": str(workdir / "%(id)s.%(ext)s"),
-        "cookiefile": "cookies.txt",
-        
-        # Spoof mobile & TV clients to bypass YouTube web player blocks
-        "extractor_args": {
-            "youtube": {
-                "client": ["android", "ios", "tv"]
-            }
+        # Speed: fetch multiple fragments of a video in parallel instead of one-by-one
+        "concurrent_fragment_downloads": 8,
+        # Speed: use aria2c (multi-connection downloader) instead of yt-dlp's built-in
+        # single-connection downloader, when available. Falls back silently if aria2c
+        # isn't installed (see Dockerfile).
+        "external_downloader": "aria2c",
+        "external_downloader_args": {
+            "aria2c": ["-x", "8", "-s", "8", "-k", "1M"]
         },
-        
+        # Twitter frequently needs a normal-looking UA to serve video variants.
         "http_headers": {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -84,18 +111,17 @@ def health():
 
 @app.post("/api/info")
 def get_info(payload: InfoRequest):
-    """Look up a post and return its available video qualities without downloading."""
+    """Look up a post/video and return its available qualities without downloading."""
     with tempfile.TemporaryDirectory(dir=TMP_ROOT) as tmp:
         opts = _base_ydl_opts(Path(tmp))
         opts["skip_download"] = True
-
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(payload.url, download=False)
         except yt_dlp.utils.DownloadError as e:
             raise HTTPException(
                 status_code=422,
-                detail="Couldn't find a downloadable video on that post. "
+                detail="Couldn't find a downloadable video there. "
                        "It may not contain video, or the post may be private/deleted.",
             ) from e
 
@@ -125,8 +151,8 @@ def download(
     format: str = Query("mp4", pattern="^(mp4|mp3)$"),
     quality: Optional[str] = Query("best"),
 ):
-    if not GENERAL_URL_RE.match(url.strip()):
-        raise HTTPException(status_code=400, detail="Invalid URL.")
+    if not SUPPORTED_URL_RE.match(url.strip()):
+        raise HTTPException(status_code=400, detail="Invalid or unsupported URL.")
 
     job_dir = TMP_ROOT / uuid.uuid4().hex
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -169,6 +195,7 @@ def download(
         raise HTTPException(status_code=500, detail="Conversion failed unexpectedly.")
 
     title = (info.get("title") or info.get("id") or "video").strip()
+    # Collapse whitespace, strip anything that isn't filename-safe, and cap the length.
     safe_title = re.sub(r"\s+", " ", title)
     safe_title = re.sub(r"[^\w\- ]", "", safe_title).strip()
     safe_title = safe_title[:30].strip() or "video"
