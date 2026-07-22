@@ -267,20 +267,15 @@
 <script>
   // Render handles everything except YouTube (blocked by YouTube's anti-bot on cloud IPs)
   const API_BASE_MAIN = "https://viddownloader-a7z9.onrender.com";
-  // Your local PC, tunneled via ngrok — only used for YouTube links.
-  // Must be running (uvicorn + `ngrok http --url=... 8000`) for YouTube downloads to work.
-  const API_BASE_YOUTUBE = "https://garnish-unpopular-parade.ngrok-free.dev";
-  // Bypasses ngrok's one-time browser warning page so fetch() gets JSON, not HTML
-  const NGROK_HEADERS = {'ngrok-skip-browser-warning': 'true'};
+  
+  // Your local PC, tunneled via Tailscale Funnel — only used for YouTube links.
+  const API_BASE_YOUTUBE = "https://desktop-5kahb8o.tail798fb6.ts.net";
 
   function isYouTubeUrl(url) {
     return /(youtube\.com|youtu\.be)/i.test(url);
   }
   function backendFor(url) {
     return isYouTubeUrl(url) ? API_BASE_YOUTUBE : API_BASE_MAIN;
-  }
-  function headersFor(url) {
-    return isYouTubeUrl(url) ? NGROK_HEADERS : {};
   }
 
   const urlInput = document.getElementById('tweetUrl');
@@ -332,7 +327,7 @@
       const base = backendFor(url);
       const res = await fetch(`${base}/api/info`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json', ...headersFor(url)},
+        headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({url})
       });
       const data = await res.json();
@@ -359,7 +354,7 @@
       setStatus('Found it. Choose a quality if needed, then download.');
     } catch (err) {
       const hint = isYouTubeUrl(url)
-        ? ' (Make sure your local backend + ngrok tunnel are running for YouTube links.)'
+        ? ' (Make sure your local backend and Tailscale Funnel are running for YouTube links.)'
         : '';
       setStatus((err.message || 'Something went wrong.') + hint, true);
     } finally {
@@ -375,7 +370,6 @@
     if (!url) return;
 
     const base = backendFor(url);
-    const headers = headersFor(url);
     const quality = currentFormat === 'mp3' ? 'best' : (qualitySelect.value || 'best');
     const originalText = dlLink.textContent;
 
@@ -388,7 +382,7 @@
       // Kick off the download as a background job on the server
       const startRes = await fetch(
         `${base}/api/download/start?url=${encodeURIComponent(url)}&format=${currentFormat}&quality=${quality}`,
-        { method: 'POST', headers }
+        { method: 'POST' }
       );
       const startData = await startRes.json();
       if (!startRes.ok) throw new Error(startData.detail || 'Could not start download.');
@@ -398,7 +392,7 @@
       let finished = false;
       while (!finished) {
         await sleep(700);
-        const progRes = await fetch(`${base}/api/download/progress/${jobId}`, { headers });
+        const progRes = await fetch(`${base}/api/download/progress/${jobId}`);
         const prog = await progRes.json();
         if (!progRes.ok) throw new Error(prog.detail || 'Lost track of the download.');
 
@@ -414,28 +408,19 @@
         }
         if (prog.status === 'finished') {
           progressFill.style.width = '100%';
-          dlLink.textContent = 'Saving…';
           finished = true;
         }
       }
 
-      // Fetch the actual finished file and trigger a save
-      const fileRes = await fetch(`${base}/api/download/file/${jobId}`, { headers });
-      if (!fileRes.ok) throw new Error('Could not retrieve the finished file.');
-      const blob = await fileRes.blob();
-      const objectUrl = URL.createObjectURL(blob);
-
-      const disposition = fileRes.headers.get('Content-Disposition') || '';
-      const match = disposition.match(/filename="?([^"]+)"?/);
-      const filename = match ? match[1] : `download.${currentFormat}`;
-
+      // Stream the finished file straight to disk using the browser's native downloader
+      dlLink.textContent = 'Saving…';
+      const fileUrl = `${base}/api/download/file/${jobId}`;
       const tempLink = document.createElement('a');
-      tempLink.href = objectUrl;
-      tempLink.download = filename;
+      tempLink.href = fileUrl;
+      // No need to set tempLink.download; the backend FastAPI FileResponse sets the correct Content-Disposition header.
       document.body.appendChild(tempLink);
       tempLink.click();
       tempLink.remove();
-      URL.revokeObjectURL(objectUrl);
 
       setStatus('Downloaded.');
     } catch (err) {
